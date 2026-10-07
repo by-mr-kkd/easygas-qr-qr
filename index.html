@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<script data-egs-run-shim>
+(function () {
+  var EXEC_URL = "https://script.google.com/macros/s/AKfycbzcWK6rmp5j9bIJfh8hITGEq5GWnyJDS-VMreQYMXa8-pkdhHA7Vx87kV7V45jubTqV4g/exec";
+  var MSG_NETWORK = '\u0e40\u0e0a\u0e37\u0e48\u0e2d\u0e21\u0e15\u0e48\u0e2d\u0e23\u0e30\u0e1a\u0e1a\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e49\u0e32\u0e19\u0e44\u0e21\u0e48\u0e44\u0e14\u0e49 \u0e01\u0e23\u0e38\u0e13\u0e32\u0e15\u0e23\u0e27\u0e08\u0e2d\u0e34\u0e19\u0e40\u0e17\u0e2d\u0e23\u0e4c\u0e40\u0e19\u0e47\u0e15\u0e41\u0e25\u0e49\u0e27\u0e25\u0e2d\u0e07\u0e43\u0e2b\u0e21\u0e48';
+  var MSG_BAD_ANSWER = '\u0e23\u0e30\u0e1a\u0e1a\u0e2b\u0e25\u0e31\u0e07\u0e1a\u0e49\u0e32\u0e19\u0e15\u0e2d\u0e1a\u0e01\u0e25\u0e31\u0e1a\u0e1c\u0e34\u0e14\u0e23\u0e39\u0e1b\u0e41\u0e1a\u0e1a \u0e01\u0e23\u0e38\u0e13\u0e32\u0e25\u0e2d\u0e07\u0e43\u0e2b\u0e21\u0e48\u0e2d\u0e35\u0e01\u0e04\u0e23\u0e31\u0e49\u0e07';
+  var MSG_FILE = '\u0e2b\u0e19\u0e49\u0e32\u0e19\u0e35\u0e49\u0e22\u0e31\u0e07\u0e2a\u0e48\u0e07\u0e44\u0e1f\u0e25\u0e4c\u0e41\u0e19\u0e1a\u0e08\u0e32\u0e01\u0e1f\u0e2d\u0e23\u0e4c\u0e21\u0e44\u0e21\u0e48\u0e44\u0e14\u0e49 \u0e01\u0e23\u0e38\u0e13\u0e32\u0e15\u0e31\u0e14\u0e0a\u0e48\u0e2d\u0e07\u0e41\u0e19\u0e1a\u0e44\u0e1f\u0e25\u0e4c\u0e2d\u0e2d\u0e01';
+  var MSG_ARGS = '\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e17\u0e35\u0e48\u0e2a\u0e48\u0e07\u0e44\u0e1b\u0e15\u0e49\u0e2d\u0e07\u0e40\u0e1b\u0e47\u0e19\u0e04\u0e48\u0e32\u0e17\u0e35\u0e48\u0e41\u0e1b\u0e25\u0e07\u0e40\u0e1b\u0e47\u0e19 JSON \u0e44\u0e14\u0e49';
+
+  function toError(name, message, cause) {
+    var err = new Error(message);
+    if (name) err.name = name;
+    if (cause !== undefined) err.cause = cause;
+    return err;
+  }
+
+  function addField(out, name, value) {
+    if (!(name in out)) { out[name] = value; return; }
+    if (!Array.isArray(out[name])) out[name] = [out[name]];
+    out[name].push(value);
+  }
+
+  function formToObject(form) {
+    var out = {};
+    var els = form.elements || [];
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      var type = String(el.type || '').toLowerCase();
+      if (!el.name || el.disabled) continue;
+      if (type === 'file') {
+        if (el.files && el.files.length) throw toError('EgsFormError', MSG_FILE);
+        continue;
+      }
+      if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image' || type === 'fieldset') continue;
+      if ((type === 'checkbox' || type === 'radio') && !el.checked) continue;
+      if (type === 'select-multiple') {
+        var opts = el.options || [];
+        for (var j = 0; j < opts.length; j++) if (opts[j].selected) addField(out, el.name, opts[j].value);
+        continue;
+      }
+      addField(out, el.name, el.value);
+    }
+    return out;
+  }
+
+  function isForm(v) {
+    return !!v && typeof v === 'object' && String(v.tagName || '').toUpperCase() === 'FORM';
+  }
+
+  function prepareArgs(args) {
+    if (args.length === 1 && isForm(args[0])) return [formToObject(args[0])];
+    return args;
+  }
+
+  function parseAnswer(text) {
+    var data;
+    try { data = JSON.parse(text); } catch (e) { throw toError('EgsRemoteError', MSG_BAD_ANSWER, e); }
+    if (!data || typeof data !== 'object' || typeof data.ok !== 'boolean') throw toError('EgsRemoteError', MSG_BAD_ANSWER);
+    return data;
+  }
+
+  function settle(state, value, err) {
+    if (err) {
+      if (state.fail) state.fail(err, state.user);
+      else console.error('google.script.run.' + state.fn + ' failed:', err);
+      return;
+    }
+    if (state.ok) state.ok(value, state.user);
+  }
+
+  function send(state, args) {
+    var body;
+    try {
+      body = JSON.stringify({ fn: state.fn, args: prepareArgs(args) });
+    } catch (e) {
+      var err = e && e.name === 'EgsFormError' ? e : toError('EgsArgsError', MSG_ARGS, e);
+      Promise.resolve().then(function () { settle(state, undefined, err); });
+      return;
+    }
+    fetch(EXEC_URL, { method: 'POST', body: body, redirect: 'follow' })
+      .then(function (res) { return res.text(); }, function (e) { throw toError('EgsNetworkError', MSG_NETWORK, e); })
+      .then(parseAnswer)
+      .then(function (data) { return { data: data }; }, function (e) { return { err: e }; })
+      .then(function (r) {
+        if (r.err) return settle(state, undefined, r.err);
+        if (r.data.ok) return settle(state, r.data.value, null);
+        var e = r.data.error || {};
+        settle(state, undefined, toError(e.name ? String(e.name) : 'Error', e.message !== undefined ? String(e.message) : 'Error'));
+      });
+  }
+
+  var SKIP = { then: 1, toJSON: 1, constructor: 1, valueOf: 1, toString: 1, inspect: 1 };
+
+  function makeRunner(state) {
+    return new Proxy({}, {
+      get: function (_, prop) {
+        if (typeof prop !== 'string' || SKIP[prop]) return undefined;
+        if (prop === 'withSuccessHandler') return function (h) { return makeRunner({ ok: h, fail: state.fail, user: state.user }); };
+        if (prop === 'withFailureHandler') return function (h) { return makeRunner({ ok: state.ok, fail: h, user: state.user }); };
+        if (prop === 'withUserObject') return function (u) { return makeRunner({ ok: state.ok, fail: state.fail, user: u }); };
+        return function () {
+          send({ ok: state.ok, fail: state.fail, user: state.user, fn: prop }, Array.prototype.slice.call(arguments));
+        };
+      }
+    });
+  }
+
+  function currentLocation() {
+    var params = new URLSearchParams(window.location.search);
+    var parameter = {}, parameters = {};
+    params.forEach(function (value, key) {
+      if (!(key in parameter)) parameter[key] = value;
+      (parameters[key] = parameters[key] || []).push(value);
+    });
+    return { hash: window.location.hash.replace(/^#/, ''), parameter: parameter, parameters: parameters };
+  }
+
+  function buildUrl(params, hash) {
+    var search = window.location.search;
+    if (params && typeof params === 'object') {
+      var q = new URLSearchParams();
+      Object.keys(params).forEach(function (k) {
+        var v = params[k];
+        if (Array.isArray(v)) v.forEach(function (x) { q.append(k, String(x)); });
+        else if (v !== undefined && v !== null) q.append(k, String(v));
+      });
+      var s = q.toString();
+      search = s ? '?' + s : '';
+    }
+    var h = hash === undefined || hash === null ? window.location.hash : (hash ? '#' + String(hash).replace(/^#/, '') : '');
+    return window.location.pathname + search + h;
+  }
+
+  var changeHandler = null;
+  window.addEventListener('popstate', function (ev) {
+    if (changeHandler) changeHandler({ state: ev.state, location: currentLocation() });
+  });
+
+  var noop = function () {};
+  window.google = {
+    script: {
+      run: makeRunner({ ok: null, fail: null, user: undefined }),
+      host: { close: noop, setHeight: noop, setWidth: noop, editor: { focus: noop }, origin: window.location.origin },
+      url: { getLocation: function (cb) { if (cb) cb(currentLocation()); } },
+      history: {
+        push: function (state, params, hash) { window.history.pushState(state === undefined ? null : state, '', buildUrl(params, hash)); },
+        replace: function (state, params, hash) { window.history.replaceState(state === undefined ? null : state, '', buildUrl(params, hash)); },
+        setChangeHandler: function (fn) { changeHandler = typeof fn === 'function' ? fn : null; }
+      }
+    }
+  };
+})();
+</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f766e'/%3E%3Cpath d='M8 8h6v6H8zm10 0h6v6h-6zM8 18h6v6H8zm10 0h6v6h-6z' fill='white'/%3E%3C/svg%3E">
+  <title>QR • บันทึกหน้างาน</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
+  <style>body{font-family:'IBM Plex Sans Thai',sans-serif}button{cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #14b8a6;outline-offset:3px}[hidden]{display:none!important}</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+  <main class="max-w-3xl mx-auto px-4 py-6 sm:py-10 space-y-5">
+    <header class="flex items-center gap-3">
+      <div class="bg-teal-700 text-white rounded-2xl w-12 h-12 grid place-items-center text-2xl"><i class="fa-solid fa-qrcode" aria-hidden="true"></i></div>
+      <div><h1 class="text-2xl font-bold">สแกนแล้วบันทึก</h1><p class="text-slate-500 text-sm">QR • เวลา • รูปแนบ ในหน้าเดียว</p></div>
+    </header>
+    <aside id="external" hidden class="rounded-2xl bg-amber-50 border border-amber-200 p-4 text-sm">เบราว์เซอร์ในแอปอาจเปิดกล้องไม่ได้ <button id="externalBtn" class="font-semibold underline min-h-11">เปิดในเบราว์เซอร์</button></aside>
+    <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <p id="connection" role="status" class="text-sm"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> กำลังเตรียมพื้นที่บันทึก…</p>
+      <button id="retryInit" hidden class="text-teal-700 font-semibold min-h-11">เชื่อมต่อใหม่</button>
+      <a id="sheetLink" hidden target="_blank" rel="noopener noreferrer" class="text-teal-700 text-sm underline py-2">เปิด Sheet (เจ้าของ)</a>
+    </div>
+    <section class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div class="p-4 sm:p-6 flex justify-between items-center gap-3"><h2 class="font-semibold text-lg">กล้องสแกน QR</h2><span class="rounded-full bg-teal-50 text-teal-800 text-xs px-3 py-1">บันทึกอัตโนมัติ</span></div>
+      <div class="relative bg-slate-900 aspect-[4/3] sm:aspect-video overflow-hidden">
+        <video id="video" playsinline autoplay muted class="w-full h-full object-contain" aria-label="ภาพจากกล้อง"></video>
+        <div id="cameraCover" class="absolute inset-0 grid place-items-center text-slate-300 text-center p-6"><div><i class="fa-solid fa-camera text-4xl mb-4" aria-hidden="true"></i><p>แตะเปิดกล้อง แล้ววาง QR ให้อยู่ในภาพ</p><p class="text-xs mt-2 text-slate-400">กล้องสดใช้งานบนหน้า GitHub Pages</p></div></div>
+      </div>
+      <div class="p-4 sm:p-6 space-y-4">
+        <p id="cameraStatus" role="status" class="text-sm text-slate-500">สแกนหนึ่งครั้งต่อรายการ กล้องจะหยุดเมื่ออ่านสำเร็จ</p>
+        <div class="flex flex-wrap gap-3">
+          <button id="scanBtn" disabled class="bg-teal-700 text-white rounded-xl px-5 py-3 font-semibold"><i class="fa-solid fa-qrcode mr-2" aria-hidden="true"></i>เปิดกล้องสแกน</button>
+          <button id="stopBtn" disabled class="border border-slate-300 rounded-xl px-5 py-3">หยุดกล้อง</button>
+          <button id="captureBtn" hidden class="bg-teal-700 text-white rounded-xl px-5 py-3"><i class="fa-solid fa-camera mr-2" aria-hidden="true"></i>ถ่ายภาพนี้</button>
+        </div>
+        <div class="border-t border-slate-100 pt-4">
+          <label for="qrFile" class="block text-sm font-medium mb-2">สำรอง: ถ่าย / เลือกรูป QR</label>
+          <input id="qrFile" disabled type="file" accept="image/*" capture="environment" class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:p-3 file:text-slate-700">
+        </div>
+      </div>
+    </section>
+    <section class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 space-y-3">
+      <label for="manual" class="font-semibold block">หรือพิมพ์ข้อความด้วยตนเอง</label>
+      <textarea id="manual" disabled rows="3" maxlength="10000" aria-describedby="inputError" class="border border-slate-300 rounded-xl w-full p-3" placeholder="ข้อความหรือรหัสที่ต้องการบันทึก"></textarea>
+      <p id="inputError" role="alert" class="text-sm text-red-700"></p>
+      <button id="saveBtn" disabled class="border border-teal-700 text-teal-800 rounded-xl px-5 py-3 font-semibold"><i class="fa-solid fa-floppy-disk mr-2" aria-hidden="true"></i>บันทึกข้อความ</button>
+      <button id="retrySave" hidden class="bg-amber-100 text-amber-900 rounded-xl px-5 py-3">ลองบันทึกรายการเดิมอีกครั้ง</button>
+      <p class="text-xs text-slate-500">เมื่อกดเปิดกล้องหรือเลือกรูป QR ถือว่ายืนยันให้บันทึกข้อความที่อ่านได้ พร้อมเวลาจากระบบ</p>
+    </section>
+    <section id="attachment" hidden class="bg-teal-50 rounded-2xl border border-teal-200 p-4 sm:p-6 space-y-3">
+      <h2 class="font-semibold">แนบรูปให้รายการล่าสุด</h2>
+      <p id="selectedText" class="text-sm break-words whitespace-pre-wrap max-h-28 overflow-auto"></p>
+      <p class="text-xs text-teal-900">แนบได้ 1 รูปต่อรายการ • รูปเก็บเป็นส่วนตัวใน Drive ของเจ้าของ</p>
+      <button id="photoBtn" class="bg-teal-700 text-white rounded-xl px-5 py-3"><i class="fa-solid fa-camera mr-2" aria-hidden="true"></i>เปิดกล้องถ่ายรูปแนบ</button>
+      <label for="photoFile" class="block text-sm font-medium">หรือถ่าย / เลือกรูปจากเครื่อง</label>
+      <input id="photoFile" type="file" accept="image/*" capture="environment" class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-white file:p-3">
+      <img id="photoPreview" hidden alt="ตัวอย่างรูปแนบ" class="max-h-64 rounded-xl mx-auto">
+      <button id="uploadBtn" hidden class="bg-teal-700 text-white rounded-xl px-5 py-3">บันทึกรูปแนบ</button>
+      <p id="photoStatus" role="status" class="text-sm"></p>
+    </section>
+    <section class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-6">
+      <div class="flex justify-between gap-3 mb-4"><h2 class="font-semibold">รายการในหน้านี้</h2><span id="count" class="text-teal-700 font-semibold">0 รายการ</span></div>
+      <div id="empty" class="text-center text-slate-500 py-8"><i class="fa-solid fa-inbox text-3xl mb-3" aria-hidden="true"></i><p>ยังไม่มีข้อมูล เริ่มสแกนรายการแรกได้เลย</p></div>
+      <ul id="records" class="divide-y divide-slate-100"></ul>
+      <p class="text-xs text-slate-500 mt-4">ประวัติในหน้านี้ไม่คงอยู่หลังโหลดใหม่ ข้อมูลที่บันทึกแล้วอยู่ใน Sheet • ผู้มีลิงก์แอปส่งรายการได้ แต่ไม่สามารถอ่านประวัติทั้งหมดผ่านแอป</p>
+    </section>
+  </main>
+  <script>
+'use strict';
+const $ = id => document.getElementById(id);
+const live = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+let token = '', busy = false, opening = false, stream = null, timer = null, generation = 0;
+let mode = '', detector = null, pending = null, latest = null, photo = '', photoTarget = '';
+const records = new Map();
+
+function notice(message) {
+  return Swal.fire({ toast:true, position:'top-end', icon:'success', title:message, showConfirmButton:false, timer:2500 });
+}
+function showError(error) {
+  return Swal.fire({ icon:'error', title:'ทำรายการไม่สำเร็จ', text:error.message || String(error), confirmButtonText:'ตกลง' });
+}
+function rpc(name, ...args) {
+  return new Promise((resolve, reject) => {
+    try {
+      if (!window.google || !google.script || !google.script.run) throw new Error('กรุณาเผยแพร่แอปก่อนใช้งานจริง');
+      google.script.run.withSuccessHandler(result => {
+        if (!result || typeof result.ok !== 'boolean') return reject(new Error('Preview ยังไม่เชื่อมข้อมูลจริง กรุณาเปิดแอปที่เผยแพร่แล้ว'));
+        if (!result.ok) return reject(new Error(result.message || 'บันทึกไม่สำเร็จ กรุณาลองใหม่'));
+        resolve(result);
+      }).withFailureHandler(err => reject(new Error((err && err.message) || 'เชื่อมต่อไม่สำเร็จ กรุณาลองใหม่')))[name](...args);
+    } catch (err) { reject(err); }
+  });
+}
+function updateControls() {
+  const blocked = busy || opening || !token;
+  ['scanBtn','qrFile','manual','saveBtn'].forEach(id => $(id).disabled = blocked || !!pending || !!stream);
+  $('stopBtn').disabled = !stream && !opening;
+  $('retrySave').hidden = !pending;
+  $('retrySave').disabled = blocked;
+  $('photoBtn').disabled = blocked || !!stream || !!pending || !latest || latest.hasPhoto;
+  $('photoFile').disabled = blocked || !!stream || !!pending || !latest || latest.hasPhoto;
+  $('captureBtn').hidden = mode !== 'photo' || !stream;
+  $('captureBtn').disabled = busy || opening;
+  $('uploadBtn').hidden = !photo || !latest || latest.hasPhoto;
+  $('uploadBtn').disabled = blocked;
+}
+function stopCamera() {
+  generation++;
+  clearTimeout(timer);
+  if (stream) stream.getTracks().forEach(track => track.stop());
+  stream = null;
+  mode = '';
+  $('video').srcObject = null;
+  $('cameraCover').hidden = false;
+  updateControls();
+}
+async function init() {
+  busy = true; $('retryInit').hidden = true; updateControls();
+  $('connection').textContent = 'กำลังเชื่อมต่อ Google Sheet…';
+  const hint = setTimeout(() => { $('connection').textContent = 'ยังรอการเชื่อมต่อ หากอยู่ใน Preview ให้เปิดแอปที่เผยแพร่แล้ว'; }, 10000);
+  try {
+    const result = await rpc('startSession');
+    token = result.token;
+    $('connection').textContent = 'พร้อมบันทึก • เวลาประเทศไทย';
+    if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(result.sheetUrl)) {
+      $('sheetLink').href = result.sheetUrl; $('sheetLink').hidden = false;
+    }
+  } catch (err) {
+    $('connection').textContent = 'ยังเชื่อมต่อไม่ได้'; $('retryInit').hidden = false; await showError(err);
+  } finally { clearTimeout(hint); busy = false; updateControls(); }
+}
+function frame(source) {
+  const width = source.videoWidth || source.naturalWidth;
+  const height = source.videoHeight || source.naturalHeight;
+  if (!width || !height) throw new Error('ภาพยังไม่พร้อม กรุณาลองใหม่');
+  const ratio = Math.min(1, 1280 / Math.max(width, height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * ratio)); canvas.height = Math.max(1, Math.round(height * ratio));
+  canvas.getContext('2d', {willReadFrequently:true}).drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+async function decode(canvas) {
+  if (detector) {
+    try {
+      const results = await detector.detect(canvas);
+      if (results.length && results[0].rawValue) return results[0].rawValue;
+    } catch (err) { detector = null; }
+  }
+  if (typeof jsQR !== 'function') throw new Error('โหลดตัวอ่าน QR ไม่สำเร็จ กรุณาโหลดหน้าใหม่หรือพิมพ์ข้อความแทน');
+  const image = canvas.getContext('2d', {willReadFrequently:true}).getImageData(0, 0, canvas.width, canvas.height);
+  const result = jsQR(image.data, image.width, image.height, {inversionAttempts:'attemptBoth'});
+  return result ? result.data : '';
+}
+async function openCamera(kind) {
+  if (busy || opening) return;
+  stopCamera();
+  if (!live) { $('cameraStatus').textContent = 'เปิดกล้องไม่ได้ ใช้ปุ่มเลือกรูปหรือพิมพ์ข้อความแทนได้'; return; }
+  opening = true; updateControls();
+  const run = generation;
+  $('cameraStatus').textContent = 'กำลังขอสิทธิ์เปิดกล้อง…';
+  try {
+    const newStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+    if (run !== generation || document.hidden) { newStream.getTracks().forEach(t => t.stop()); return; }
+    stream = newStream; mode = kind;
+    $('video').srcObject = stream;
+    await $('video').play();
+    if (run !== generation) return;
+    $('cameraCover').hidden = true;
+    $('cameraStatus').textContent = kind === 'scan' ? 'กำลังอ่าน QR • อ่านสำเร็จแล้วจะบันทึกทันที' : 'จัดภาพ แล้วกดถ่ายภาพนี้';
+    if (kind === 'scan') {
+      if ('BarcodeDetector' in window) {
+        try { detector = new BarcodeDetector({formats:['qr_code']}); } catch (err) { detector = null; }
+      }
+      scanLoop(run);
+    }
+  } catch (err) {
+    stopCamera();
+    const msg = err.name === 'NotFoundError' ? 'ไม่พบกล้อง ใช้ปุ่มเลือกรูปหรือพิมพ์ข้อความแทนได้' : 'เปิดกล้องไม่ได้ กรุณาอนุญาตกล้อง หรือใช้ปุ่มเลือกรูปแทน';
+    $('cameraStatus').textContent = msg;
+    await Swal.fire({icon:'info', title:'ใช้กล้องไม่ได้', text:msg, confirmButtonText:'ตกลง'});
+  } finally { opening = false; updateControls(); }
+}
+async function scanLoop(run) {
+  if (run !== generation || !stream || mode !== 'scan') return;
+  try {
+    if ($('video').readyState >= 2) {
+      const text = await decode(frame($('video')));
+      if (run !== generation) return;
+      if (text) { stopCamera(); await beginSave(text); return; }
+    }
+    timer = setTimeout(() => scanLoop(run), 300);
+  } catch (err) { stopCamera(); await showError(err); }
+}
+function makeId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const a = crypto.getRandomValues(new Uint8Array(16));
+  a[6] = (a[6] & 15) | 64; a[8] = (a[8] & 63) | 128;
+  const s = Array.from(a, x => x.toString(16).padStart(2,'0')).join('');
+  return s.slice(0,8)+'-'+s.slice(8,12)+'-'+s.slice(12,16)+'-'+s.slice(16,20)+'-'+s.slice(20);
+}
+async function beginSave(text) {
+  if (busy || pending) return;
+  $('inputError').textContent = '';
+  if (!text.trim() || text.length > 10000) {
+    $('inputError').textContent = 'กรุณาระบุข้อความไม่เกิน 10,000 ตัวอักษร'; $('manual').focus(); return;
+  }
+  pending = {id:makeId(), text:text};
+  await persist();
+}
+async function persist() {
+  if (busy || !pending) return;
+  busy = true; updateControls(); $('saveBtn').textContent = 'กำลังบันทึก…';
+  $('cameraStatus').textContent = 'กำลังบันทึกข้อความและเวลา กรุณารอสักครู่…';
+  try {
+    const result = await rpc('saveScan', token, pending);
+    latest = result.record; records.set(latest.id, latest); pending = null;
+    photo = ''; photoTarget = ''; $('photoPreview').hidden = true; $('photoStatus').textContent = '';
+    $('manual').value = ''; $('attachment').hidden = false; $('selectedText').textContent = latest.text;
+    $('cameraStatus').textContent = 'บันทึกแล้ว • แนบรูปด้านล่าง หรือเปิดกล้องเพื่อสแกนรายการถัดไป';
+    renderRecords(); notice('บันทึกข้อความและเวลาแล้ว');
+  } catch (err) {
+    $('cameraStatus').textContent = 'ยังไม่ได้รับการยืนยัน ใช้ปุ่มลองบันทึกรายการเดิมเพื่อป้องกันรายการซ้ำ';
+    await showError(err);
+  } finally { busy = false; $('saveBtn').textContent = 'บันทึกข้อความ'; updateControls(); }
+}
+function renderRecords() {
+  $('records').replaceChildren();
+  Array.from(records.values()).reverse().forEach(record => {
+    const li = document.createElement('li'); li.className = 'py-4 space-y-1';
+    const text = document.createElement('p'); text.className = 'break-words whitespace-pre-wrap font-medium'; text.textContent = record.text;
+    const time = document.createElement('p'); time.className = 'text-xs text-slate-500'; time.textContent = record.time + ' • ' + (record.hasPhoto ? 'แนบรูปแล้ว' : 'ไม่มีรูปแนบ');
+    li.append(text, time); $('records').append(li);
+  });
+  $('empty').hidden = records.size > 0; $('count').textContent = records.size + ' รายการ';
+}
+function readImage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) return reject(new Error('กรุณาเลือกไฟล์รูปภาพ'));
+    if (file.size > 20 * 1024 * 1024) return reject(new Error('รูปต้นฉบับต้องไม่เกิน 20 MB'));
+    const url = URL.createObjectURL(file); const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('อ่านรูปไม่ได้ กรุณาใช้ JPEG หรือ PNG')); };
+    img.src = url;
+  });
+}
+function preparePhoto(canvas) {
+  if (!latest || latest.hasPhoto) throw new Error('กรุณาบันทึก QR ใหม่ก่อนแนบรูป');
+  const data = canvas.toDataURL('image/jpeg', 0.8);
+  if (data.length > 2800000) throw new Error('รูปยังใหญ่เกินไป กรุณาเลือกรูปอื่น');
+  photo = data; photoTarget = latest.id;
+  $('photoPreview').src = photo; $('photoPreview').hidden = false;
+  $('photoStatus').textContent = 'ตรวจรูปแล้วกดบันทึกรูปแนบ'; updateControls();
+}
+async function uploadPhoto() {
+  if (busy || !photo || !latest || photoTarget !== latest.id) return;
+  busy = true; updateControls();
+  try {
+    const answer = await Swal.fire({icon:'question', title:'บันทึกรูปแนบนี้?', text:'รูปจะผูกกับรายการล่าสุด และไม่สามารถเปลี่ยนผ่านหน้านี้ได้', showCancelButton:true, confirmButtonText:'บันทึกรูป', cancelButtonText:'ยกเลิก'});
+    if (!answer.isConfirmed) return;
+    $('uploadBtn').textContent = 'กำลังบันทึกรูป…';
+    const result = await rpc('attachPhoto', token, photoTarget, photo);
+    latest = result.record; records.set(latest.id, latest); photo = ''; photoTarget = '';
+    $('photoStatus').textContent = 'แนบรูปสำเร็จแล้ว'; renderRecords(); notice('บันทึกรูปแนบแล้ว');
+  } catch (err) { await showError(err); }
+  finally { busy = false; $('uploadBtn').textContent = 'บันทึกรูปแนบ'; updateControls(); }
+}
+$('scanBtn').addEventListener('click', async () => {
+  if (photo) {
+    const result = await Swal.fire({icon:'warning',title:'ยังไม่ได้บันทึกรูปแนบ',text:'สแกนรายการใหม่โดยไม่บันทึกรูปนี้หรือไม่?',showCancelButton:true,confirmButtonText:'สแกนต่อ',cancelButtonText:'กลับไปบันทึกรูป'});
+    if (!result.isConfirmed) return;
+  }
+  openCamera('scan');
+});
+$('stopBtn').addEventListener('click', () => { stopCamera(); $('cameraStatus').textContent = 'หยุดกล้องแล้ว'; });
+$('photoBtn').addEventListener('click', () => openCamera('photo'));
+$('captureBtn').addEventListener('click', async () => {
+  try { const canvas = frame($('video')); stopCamera(); preparePhoto(canvas); }
+  catch (err) { stopCamera(); await showError(err); }
+});
+$('saveBtn').addEventListener('click', async () => {
+  const text = $('manual').value;
+  if (!text.trim() || text.length > 10000) { $('inputError').textContent = 'กรุณาระบุข้อความไม่เกิน 10,000 ตัวอักษร'; $('manual').focus(); return; }
+  busy = true; updateControls();
+  let confirmed = false;
+  try {
+    const result = await Swal.fire({icon:'question',title:'บันทึกข้อความนี้?',text:photo ? 'รูปที่ยังไม่ได้บันทึกของรายการก่อนหน้าจะถูกล้าง' : 'ระบบจะบันทึกข้อความพร้อมเวลาประเทศไทย',showCancelButton:true,confirmButtonText:'บันทึก',cancelButtonText:'ยกเลิก'});
+    confirmed = result.isConfirmed;
+  } catch (err) { await showError(err); }
+  finally { busy = false; updateControls(); }
+  if (confirmed) await beginSave(text);
+});
+$('retrySave').addEventListener('click', persist);
+$('retryInit').addEventListener('click', init);
+$('uploadBtn').addEventListener('click', uploadPhoto);
+$('qrFile').addEventListener('change', async event => {
+  const file = event.target.files[0]; if (!file) return;
+  busy = true; stopCamera(); updateControls(); let text = '';
+  try {
+    if (photo) {
+      const answer = await Swal.fire({icon:'warning',title:'รูปแนบยังไม่ได้บันทึก',text:'อ่าน QR ใหม่และล้างรูปที่ค้างอยู่หรือไม่?',showCancelButton:true,confirmButtonText:'อ่าน QR ต่อ',cancelButtonText:'ยกเลิก'});
+      if (!answer.isConfirmed) return;
+    }
+    text = await decode(frame(await readImage(file)));
+    if (!text) throw new Error('ไม่พบ QR ในรูป กรุณาใช้ภาพชัดขึ้นหรือพิมพ์ข้อความแทน');
+  } catch (err) { await showError(err); }
+  finally { busy = false; event.target.value = ''; updateControls(); }
+  if (text) await beginSave(text);
+});
+$('photoFile').addEventListener('change', async event => {
+  const file = event.target.files[0]; if (!file) return;
+  busy = true; stopCamera(); updateControls();
+  try { preparePhoto(frame(await readImage(file))); }
+  catch (err) { await showError(err); }
+  finally { busy = false; event.target.value = ''; updateControls(); }
+});
+$('externalBtn').addEventListener('click', () => { location.href = location.origin + location.pathname + '?openExternalBrowser=1'; });
+$('external').hidden = !(/Line\//i.test(navigator.userAgent) || /FBAN|FBAV|Instagram/i.test(navigator.userAgent));
+document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
+window.addEventListener('pagehide', stopCamera);
+if (!live) $('cameraStatus').textContent = 'สภาพแวดล้อมนี้เปิดกล้องสดไม่ได้ ใช้รูปหรือพิมพ์ข้อความแทนได้';
+init();
+</script>
+
+</body>
+</html>
